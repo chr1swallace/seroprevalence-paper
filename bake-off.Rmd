@@ -1,0 +1,275 @@
+
+---
+title: "Optimising a machine learning predictor for detecting COVID antibody positive individuals by ELISA"
+author: "Stasia Grinberg, Chris Wallace"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: html_document
+---
+
+```{r, echo=FALSE, results=FALSE}
+library(knitr)
+library(data.table)
+library(magrittr)
+library(ggplot2)
+library(cowplot)
+library(ggnewscale) # multiple colour scales in a ggplot
+library(seaborn) # nicer colours
+library(viridis) # some other nice colours
+library(caret)
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      echo=FALSE, warning=FALSE, message=FALSE)
+source("common.R")
+
+## stas methods
+(load(file.path(d,"ml_results.RData")))
+(load(file.path(d,"univar_results.RData")))
+for(i in seq_along(res.x)) {
+  res[[i]] <- res[[i]][, !grepl("svmquad", names(res[[i]])), with = FALSE]
+  res.x[[i]] <- res.x[[i]][, !grepl("svmquad", names(res.x[[i]])), with = FALSE]
+
+  res[[i]]$fold.nm <- paste0("fold",i)
+  res.x[[i]]$fold.nm <- paste0("fold",i)
+  res.rbd[[i]]$fold.nm <- paste0("fold",i)
+  res.rbd.x[[i]]$fold.nm <- paste0("fold",i)
+  res.spk[[i]]$fold.nm <- paste0("fold",i)
+  res.spk.x[[i]]$fold.nm <- paste0("fold",i)
+}
+res  %<>% rbindlist(.,fill=TRUE)
+res.x  %<>% rbindlist(.,fill=TRUE)
+res.rbd %<>% rbindlist(.,fill=TRUE)
+res.rbd.x %<>% rbindlist(.,fill=TRUE)
+res.spk %<>% rbindlist(.,fill=TRUE)
+res.spk.x %<>% rbindlist(.,fill=TRUE)
+
+res <- res[Sample.ID %in% res.x$Sample.ID]
+res.rbd <- res.rbd[Sample.ID %in% res.x$Sample.ID]
+res.spk <- res.spk[Sample.ID %in% res.x$Sample.ID]
+
+identical(res$Sample.ID,res.rbd$Sample.ID)
+identical(res$Sample.ID,res.x$Sample.ID)
+identical(res$Sample.ID,res.spk$Sample.ID)
+res.x <- cbind(res.x,
+               res.rbd.x[,.(pr.logreg.rbd=pr.logreg,
+                        pr.svmlin.rbd=pr.svm,
+                        pr.lda.rbd=pr.lda,
+                        pr.ens.log.rbd=pr.ens.log,
+                        pr.ens.rbd=pr.ens
+                        )],
+               res.spk.x[,.(pr.logreg.spk=pr.logreg,
+                            pr.svmlin.spk=pr.svm,
+                            pr.lda.spk=pr.lda,
+                            pr.ens.log.spk=pr.ens.log,
+                            pr.ens.spk=pr.ens
+                            )],
+               res.rbd[,.(pr.3sd.rbd=ifelse(pred.3sd=="COVID.pred",1,0),
+                          pr.6sd.rbd=ifelse(pred.6sd=="COVID.pred",1,0))],
+               res.spk[,.(pr.3sd.spk=ifelse(pred.3sd=="COVID.pred",1,0),
+                          pr.6sd.spk=ifelse(pred.6sd=="COVID.pred",1,0))])
+
+res.x[,pr.3sd:=pr.3sd.rbd * pr.3sd.spk]
+res.x[,pr.6sd:=pr.6sd.rbd * pr.6sd.spk]
+
+res.x <- melt(res.x,
+            c("fold.nm","SPIKE","RBD","group","type"),
+            grep("pr\\.",names(res.x),value=TRUE),
+            value.name="pcovid",
+            variable.name="method")
+res.x[,method:=sub("pr.","",method)]
+head(res.x)
+
+table(res.x$method)
+res.x[,method:=sub("ens.log","enslog",method)]
+
+dt <- res.x
+dt[,type:=sub("Historical.controls","Historical.controls",type)]
+
+dt[,fold.type:=ifelse(fold.nm %in% paste0("fold",1:3),"stratified",
+                      ifelse(fold.nm %in% paste0("fold",4:6),"random", "unbalanced"))]
+
+## print best for comparison
+best <- dt[,.(mean.pcovid=mean(pcovid)),
+           by=c("type","method","fold.type")][,
+error:=ifelse(type=="COVID",1-mean.pcovid,mean.pcovid)]
+
+options(digits=3)
+best[order(type,error)]
+
+library(ggrepel)
+
+comb <- dcast(best,method+fold.type ~ type,value.var="mean.pcovid")
+comb[,sensitivity:=COVID][,specificity:=1-Historical.controls]
+fwrite(comb,file.path(d,"bake-off-v3.csv"))
+comb[,methodbase:=sub("\\..*","",method)]
+comb[,protein:="Both"]
+comb[grep("rbd",method),protein:="RBD"]
+comb[grep("spk",method),protein:="SPIKE"]
+
+comb[method=="ens"]
+```
+# Results
+
+We compared a series of machine learning algorithms according to their ability to correctly infer infection status in 116 PCR+ COVID donors and 308 historical blood donor controls (295 assayed in duplicate), using 10-fold cross-validation.  We considered three strategies for cross-validation:
+
+* random : individuals were sampled into folds at random
+* stratified : individuals were sampled into folds at random, subject to ensuring the balance of cases:controls remained fixed
+* unbalanced : individuals were sampled into folds such that each fold was deliberately skewed to under or overrepresent cases compared to the total sample.
+
+We sought a method with performance that was consistently good across all cross-validation sampling schemes, because the true proportion of cases in the test data is unknown, and we want a method that is not overly sensitive to the proportion of cases in the training data.  We chose to assess performance using sensitivity and specificity, as well as consistency.
+
+Training models on ELISAs for both proteins simultaneously (RBD and SPIKE), we found most methods worked well, with SVM maintaining highest consistency and second best sensitivity (losing only slightly to logistic regression), while LDA maximised specificity at the cost of lower sensitivity.  We chose to create an ensemble learner which was an unweighted average of SVM and LDA to balance the benefits of each approach.  Logistic regression showed the lowest consistency, which reflects that the proportion of cases in a sample directly informs a logistic model's estimated parameters.
+
+```{r}
+
+library(ggrepel)
+p1 <- ggplot(comb[protein=="Both"],
+       aes(x=100*sensitivity,y=100*specificity,
+           col=methodbase,
+           group=methodbase,
+           pch=fold.type)) +
+  geom_point(aes(shape=fold.type#,colour=fold.type
+                 ),size=4)  +
+  ## geom_path() +
+  geom_polygon(aes(fill=methodbase),alpha=0.3) +
+    ## col="grey",fill="grey80") +
+  geom_label_repel(aes(label=methodbase),
+                   data=comb[protein=="Both" & method!="mclust-labelled" & fold.type=="stratified"],
+                   ## nudge_x=0.001,
+                   nudge_y=-0.1
+                   ) +
+  guides(colour ="none",fill="none",shape= "legend") +
+  labs(x="Sensitivity (%)",y="Specificity (%)") +
+  ## ylim(0,0.01) +
+  background_grid() +
+  theme(legend.position=c(0.05,0.2),
+        strip.text=element_text(face="bold"),
+        strip.background=element_blank()) +
+  ## facet_grid(protein~fold.type) +
+  ## facet_wrap(~protein,ncol=1,labeller=label_both) +
+  ggtitle("Sensitivity in COVID patients and specificity in historical controls using different cross validation sampling schemes")
+```
+
+We also considered the performance of these methods using only one protein, and compared then methods to standard approaches using 3 or 6 SD above the mean of historical control samples.  3-SD had the lowest specificity (<99%) and the highest sensitivity, while 6-SD had the highest specificity, with a sensitivity ranged from ~98% (RBD) to 100% (SPIKE). For all the methods which could learn from both ELISAs simultaneously, the joint performance (specificity and sensitivity) exceeded the least performing single ELISA, and in some cases (linear SVM, SVM-LDA ensemble) exceeded both single ELISA predictions.
+
+```{r}
+ggplot(comb[],
+       aes(x=100*sensitivity,y=100*specificity,
+           col=methodbase,
+           group=methodbase,
+           pch=fold.type)) +
+  geom_point(aes(shape=fold.type#,colour=fold.type
+                 ),size=4,alpha=0.5)  +
+  ## geom_path() +
+  geom_polygon(aes(fill=methodbase),alpha=0.3) +
+    ## col="grey",fill="grey80") +
+  geom_label_repel(aes(label=methodbase),
+                   data=comb[method!="mclust-labelled" & fold.type=="stratified"],
+                   ## nudge_x=0.001,
+                   nudge_y=-0.1
+                   ) +
+  guides(colour ="none",fill="none",shape= "legend") +
+  labs(x="Sensitivity (%)",y="Specificity (%)") +
+  ## ylim(0,0.02) +
+  background_grid() +
+  theme(legend.position=c(0.05,0.2),
+        strip.text=element_text(face="bold"),
+        strip.background=element_blank()) +
+  ## facet_grid(protein~fold.type) +
+  facet_wrap(~protein,ncol=3 #,labeller=label_both
+             ) +
+  ggtitle("Sensitivity and specificity in COVID patients and historical controls using different cross validation sampling schemes")
+```
+
+Finally, we considered the prediction surface associated with SVM, LDA, SVM-LDA ensemble, and the standard 3-SD, 6-SD hard decision boundaries. Note that while methods trained on both proteins can draw decision contours at any angle, SD methods are limited to vertical or horizontal lines. We can see that success, or failure, of the SD cut-offs depends on how many positive and negative cases overlap for a given measure (SPIKE or RBD) in the training sample. In the training data the two classes are nearly linearly separable when each protein is considered on its own (top panels), which explains good performance of 3-SD and 6-SD thresholds. However, the test data (bottom panels) contain many more points in the mid-range of SPIKE-RBD, which makes hard cut-offs a problematic choice for classifying test samples.
+
+When considering both proteins, the training data is perfectly linearly separable. Both SVM and LDA offer linear classification boundaries but we can see that probability transition from negative to positive cases is much sharper for LDA, potentially resulting in false negatives when applied to the test data, but giving the model high specificity. SVM exhibits a softer probability transition around its classification boundary, offering a much more nuanced approach to the points lying in the mid-range of the two proteins. These points are the hardest to classify partially due to the relative scarcity of observations in this region in the test dataset. We assessed that combining the two methods, LDA and SVM, would allow an ensemble method to benefit from high specificity of the LDA and high sensitivity and a more gradual probability transition around the classification boundary of the SVM, and chose to use the ensemble method to analyse the test data.
+
+```{r, echo=FALSE, results=FALSE}
+(load(file_rdata_v5)) #m
+m[, type:=make.names(type)]
+
+dat <- m[!(type %in% c("No.sample.control", "Patient.4")),]
+
+rbd <- dat[type == "Historical.controls"]$RBD
+spk <- dat[type == "Historical.controls"]$SPIKE
+
+thr.rbd3 <- mean(rbd) + 3 * sd(rbd)
+thr.rbd6 <- mean(rbd) + 6 * sd(rbd)
+thr.spk3 <- mean(spk) + 3 * sd(spk)
+thr.spk6 <- mean(spk) + 6 * sd(spk)
+
+prob.grd <- readRDS(file.path(d, "probability_grid_no12.rds"))
+RES <- readRDS(file.path(d, "predictions_on_test_set.rds"))
+RES <- melt(RES, measure.vars = grep("status",names(RES),value=TRUE))
+#c("status.SVM", "status.LDA", "status.ENS","status.LOG","status.ENS.LOG"))
+RES[, method := sub("status\\.", "", variable)]
+setnames(RES, "value", "status")
+RES[, mod := "Test"]
+dat <- dat[!(Sample.ID %in% c("1", "2"))]
+
+dat <- dat[!(Sample.ID %in% c("1", "2"))]
+dat$tt <- ifelse(dat$type %in% c("Historical.controls","COVID"), "train","test")
+myCol <- viridis(option = "C", 5)
+myCol2 <- viridis(option = "D", 4)
+
+#trainind data df
+train.ind <- dat$type %in% c("COVID", "Historical.controls")
+ddat <- dat[, c("Sample.ID", "type", "SPIKE", "RBD")]
+ddat[, status := type]
+## ddat <- rbind(ddat, ddat, ddat, ddat, ddat, ddat)
+## ddat[, method := rep(c("LDA", "SVM", "SVM2","ENS","LOG","ENS.LOG"), len = nrow(ddat))]
+ddat[, mod := ifelse(type %in% c("Historical.controls","COVID"), "Train","Test")]
+
+#test data df
+X <- rbind(RES[, c("Sample.ID", "SPIKE", "RBD", "status", "mod")],
+           ddat[, c("Sample.ID", "SPIKE", "RBD", "status", "mod")])
+X[, mod := factor(mod, levels = c("Train", "Test"))]
+X[grepl("pred", status), status := "Test data"]
+X[grepl("controls", status), status := "Historical controls"]
+X[, status := factor(status, levels = c("Historical controls", "COVID", "Test data"))]
+## X[, method := factor(method, levels = c("LOG", "LDA", "SVM", "SVM2","ENS", "ENS.LOG"))]
+
+myCol2[2] <- "grey40"
+library(ggnewscale)
+ggplot() +
+geom_contour(data = prob.grd, aes(x = RBD, y = SPIKE, z = covid.prob, colour = ..level..), show.legend = FALSE) +
+scale_color_gradient(low = myCol2[3], high = myCol2[1]) +
+geom_raster(data = prob.grd, aes(x = RBD, y = SPIKE, fill = covid.prob), alpha = 0.5) +
+scale_fill_gradient(name ="Prob(COVID)", low = myCol2[3], high = myCol2[1]) +
+  new_scale("fill") +
+  ## scale_colour_manual(name = "Samples", values = myCol2[c(3, 1, 2)]) +
+  scale_fill_manual(name = "Samples", values = myCol2[c(3, 1, 2)]) +
+geom_point(data = X, aes(x = SPIKE, y = RBD, fill = status), alpha = 0.7, size = 3,pch=21) +
+scale_x_continuous(trans = "log2") + scale_y_continuous(trans = "log2") +
+geom_hline(data = prob.grd, aes(yintercept = thr.spk3, linetype = "3sd"), colour = "#BB3754FF") +
+geom_vline(data = prob.grd, aes(xintercept = thr.rbd3, linetype = "3sd"), colour = "#BB3754FF", show.legend = FALSE) +
+geom_hline(data = prob.grd, aes(yintercept = thr.spk6, linetype = "6sd"), colour = "#BB3754FF") +
+geom_vline(data = prob.grd, aes(xintercept = thr.rbd6, linetype = "6sd"), colour = "#BB3754FF", show.legend = FALSE) +
+scale_linetype_manual(name = 'sd method', values = c(1, 2), guide = guide_legend(override.aes = list(linetype = c("solid", "dashed")))) +
+xlab("log(RBD)") + ylab("log(SPIKE)") +
+facet_grid(mod ~ method) + theme_cowplot(font_size = 25) + background_grid()
+
+
+```
+
+# Methods
+
+## Standardisation
+
+Each sample OD was standardised by dividing by the mean OD of no sample controls on that plate (xx samples) or on other plates run on that day (xx samples).  This resulted in more similar distributions for 2019 blood donor samples that were run in duplicate with 2020 blood donors and pregnant volunteers, as well as smaller coefficients of variation amongst PCR+ COVID patients for both SPIKE and RBD.
+
+## Machine learning algorithms
+Logistic regression and linear discriminant analysis (LDA) both model log odds of a sample being case as a linear equation with a resulting linear decision boundary. The difference between the two methods is in how the coefficients for the linear models are estimated from the data. When applied to new data, the output of logistic regression and LDA is the probability of each new sample being case.
+
+Support vector machines (SVM) is an altogether different approach. We opted for a linear kernel, once again resulting in a linear boundary. SVM constructs a boundary that maximally separates the classes (i.e. the margin between the closest member of any class and the boundary is as wide as possible), hence points lying far away from their respective class boundaries do not play an important role in shaping it. SVM thus puts more weight on points closest to the class boundary, which in our case is far from being clear. Linear SVM has one tuning parameter C, a cost, with larger values resulting in narrower margins. We tuned C on a vector of values (0.001, 0.01, 0.5, 1, 2, 5, 10) via an internal 5-fold CV with 5 repeats (with the winning parameter used for the final model for the main CV iteration). We also note that the natural output of SVM are class labels rather than class probabilities, so the latter are obtained via the method of Platt [1].
+
+The SVM-LDA ensemble was defined as an unweighted average of the probabilities generated under the SVM and LDA models.
+
+## Cross fold validation
+N-fold cross-validation (CV) is a statistical procedure which allows to evaluate predictive performance of a model when the dataset used is too small to set aside a designated test subset. In CV the data is divided randomly into N subsets of equal size, folds (typically N = 5 or 10). At each step i=1,...,N we train our model on a subset of the data excluding fold i, on which the trained model is tested. The resulting vector of cross-validated predictions is of the same length as the vector of output values y, and can be used to calculate predictive accuracy of the model.
+
+We opted for 10-fold CV and generated 9 sets of 10 random folds: 3 sets of stratified folds, where the ratio of cases and controls is kept constant at the overall sample level in each fold, 3 sets of randomly sampled folds, and 3 sets of folds where ratio of cases and controls was unbalanced on purpose (reflecting a more realistic situation). The accuracy measures were calculated by averaging over these 9 fold sets.
+
+# References
+
+[1] Platt, John. "Probabilistic outputs for support vector machines and comparisons to regularized likelihood methods." Advances in large margin classifiers 10.3 (1999): 61-74.
+[2] https://www.tandfonline.com/doi/abs/10.1080/00031305.2018.1473796

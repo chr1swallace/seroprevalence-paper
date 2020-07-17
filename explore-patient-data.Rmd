@@ -1,0 +1,598 @@
+
+```{r, echo=FALSE, results=FALSE}
+library(knitr)
+library(data.table)
+library(magrittr)
+library(seaborn) # nicer colours
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      echo=FALSE, warning=FALSE, message=FALSE)
+source("common.R")
+
+library(readxl)
+(nm <- excel_sheets(file2_xlsx_v5)) # only one sheet
+x <- read_xlsx(file2_xlsx_v5,sheet=1)  %>% as.data.table()
+xold <- read_xlsx(file2_xlsx_v2,sheet=1)  %>% as.data.table()
+names(xold)
+names(x)
+dim(xold)
+dim(x)
+setdiff(xold[["1st S (d)"]], x[["Days FFS"]])
+
+setnames(x, c("Days post PCR"), c("Days.PCR"))
+setnames(x,make.names(names(x)))
+summary(x)
+table(x$Sex)
+#x[,Sex:=ifelse(Sex==0,"F","M")]
+sapply(x,class)
+## x[,COVID.Patient.ID:=as.numeric(COVID.Patient.ID)]
+x[,Days.FFS:=as.numeric(Days.FFS)] # NA = ND/NO SYMPT
+x[,Days.PCR:=as.numeric(Days.PCR)]
+x[Severity=="ND",Severity:=NA]; x[,Severity:=as.factor(Severity)]; table(x$Severity)
+table(x$Sex); x[,Sex:=factor(Sex,levels=c("M","F"))]
+for(nm in grep("Ig|IL.6|PSV.ID",names(x)))
+  x[[nm]] %<>% as.numeric()
+summary(x)
+x$Years <- 2020 - x$DOB
+x
+```
+
+# Simple descriptive plots of explanatory variables
+
+Consider age, sex, severity and Days.FFS as explanatory variables.
+
+We have data on 103 patients, of whom 56% were male
+```{r}
+x[,.(Count=.N, "%"=100*.N/nrow(x)),by="Sex"]  %>% kable()
+```
+
+The age distribution, proxied by 2020 - year of birth, was broadly similar between males and females, with median "age" 53 overall, although males were on average slightly older.
+
+```{r}
+all <- x[,.(Sex="All",Median=median(Years), LQR=quantile(Years,0.25), UQR=quantile(Years,0.75))]
+bysex <- x[,.(Median=median(Years), LQR=quantile(Years,0.25), UQR=quantile(Years,0.75)), by="Sex"]
+rbind(all,bysex)  %>% kable()
+
+library(beeswarm)
+tmp <- boxplot(Years ~ Sex, data=x,
+        col=grDevices::adjustcolor(seaborn:::SEABORN_PALETTES$muted[1:2],alpha.f=0.2),
+        border="gray",
+        axes=FALSE,
+        outline = FALSE,
+        main="2020 - DOB by sex (M/F)")     ## avoid double-plotting outliers, if any
+beeswarm(Years ~ Sex, data=x, pwcol=seaborn:::SEABORN_PALETTES$muted[as.numeric(x$Sex)],
+         ## pwpch=as.numeric(x$Sex)+14,
+         cex=2,
+         add=TRUE)
+axis(1,at=1:2,labels=tmp$names)
+axis(2)
+legend("topright",paste("Kruskal Wallis p =",format.pval(kruskal.test(Years ~ Sex, data=x)$p.value)))
+
+## beeswarm(DOB ~ Sex, do.plot=FALSE,
+##          pch = 16,
+##          data=x,
+##          pwcol=as.numeric(Sex),
+##          main="Date of birth by sex")
+## beeswarm(Years ~ Sex, data=x, do.plot=FALSE)  %>% 
+```
+
+
+```{r}
+y <- x$Days.FFS-x$Days.PCR
+mn <- min(y, na.rm=TRUE)
+mx <- max(x$Days.FFS-x$Days.PCR, na.rm=TRUE)
+cat("Of",sum(!is.na(x$Days.FFS) & !is.na(x$Days.PCR)), "patients who reported symptom onset and a PCR date, reported symtom onset was a median of",median(x$Days.FFS-x$Days.PCR, na.rm=TRUE),
+    "days before their PCR tests, but this ranged from ",
+    mn,"-",
+    mx,"days.\n")
+with(x, summary(Days.FFS-Days.PCR))
+
+tt <- seq(mn,mx)
+tt <- structure(sapply(tt, function(a) sum(y==a, na.rm=TRUE)), names=tt)
+barplot(tt, main="Days from first symptom to PCR test")
+## x[Days.PCR > Days.FFS]
+## x[Days.PCR == Days.FFS]
+```
+
+There are 3 classes of severity, with 2 unknowns.  Severe disease is over represented in males and older individuals 
+
+```{r}
+x[,.(Count=.N,"%"=100*.N/nrow(x)),by="Severity"][order(Severity)]  %>% kable()
+x[!is.na(Severity),.(Count=.N,"%"=100*.N/nrow(x)),by=c("Sex","Severity")][order(Severity)]  %>% kable()
+tt <- with(x, table(Sex=Sex, Severity=Severity))
+print("Counts")
+print(tt)
+print("%")
+100*prop.table(tt)
+ft <- fisher.test(tt)
+print(ft)
+
+all <- x[,.(Severity="All",Median=median(Years), LQR=quantile(Years,0.25), UQR=quantile(Years,0.75))]
+bysex <- x[!is.na(Severity),.(Median=median(Years), LQR=quantile(Years,0.25), UQR=quantile(Years,0.75)), by="Severity"]
+rbind(all,bysex)[order(Severity)]  %>% kable()
+kt <- kruskal.test(Years ~ Severity, data=x)
+print(kt)
+
+tmp <- boxplot(Years ~ Severity, data=x,
+        col=grDevices::adjustcolor("grey",alpha.f=0.2),
+        border="gray",
+        axes=FALSE,
+        outline = FALSE,
+        main="2020 - DOB by Severity (1/2/3)")     ## avoid double-plotting outliers, if any
+beeswarm(Years ~ Severity, data=x,
+         ## pwcol=seaborn:::SEABORN_PALETTES$muted[as.numeric(x$Severity)],
+         pwpch=as.numeric(x$Severity)+14,
+         cex=2,
+         add=TRUE)
+axis(1,at=1:3,labels=tmp$names)
+axis(2)
+legend("topleft",paste("Kruskal-Wallis p =",format.pval(kt$p.value)))
+
+x[,Sex.Severity:=paste(Sex,Severity,sep=".")]
+tmp <- boxplot(Years ~ Sex + Severity, data=x,
+        col=grDevices::adjustcolor(seaborn:::SEABORN_PALETTES$muted[1:2],alpha.f=0.2),
+        border="gray",
+        axes=FALSE,
+        outline = FALSE,
+        main="2020 - DOB by sex (M/F) and severity (1/2/3)")     ## avoid double-plotting outliers, if any
+beeswarm(Years ~ Sex + Severity, data=x, pwcol=seaborn:::SEABORN_PALETTES$muted[as.numeric(x$Sex)],
+         pwpch=as.numeric(x$Severity)+14,
+         cex=2,
+         add=TRUE)
+axis(1,at=1:6,labels=tmp$names)
+axis(2)
+
+```
+
+Sex, Severity and DOB are independent of Days.FSS
+
+```{r}
+with(x, cor.test(Days.FFS, Years, method="spearman"))
+with(x, kruskal.test(Days.FFS ~ Sex))
+with(x, kruskal.test(Days.FFS ~ Severity))
+```
+
+## Univariate analysis of Ig measures
+
+Generally, males showed higher IgA readings (more pronounced for RBD than Spike), and higher IL-6 levels (p values shown are for Kruskal-Wallis tests).  Disease severity showed a clearer trend, with higher IL-6, PSV.ID50, and all Ig associating with higher severity. All measures showed a weak but non-significant trends upwards with Age.
+
+
+```{r}
+x[,COVID.Patient.ID:=1:.N]
+m <- melt(x,
+          c("COVID.Patient.ID", "Days.FFS", "Severity", "Sex","DOB","Days.PCR", "Years"),
+          c("S.IgM", "RBD.IgM", "S.IgG", "RBD.IgG", "S.IgA", "RBD.IgA"))[!is.na(value),]
+head(m)
+m[,.(Number=.N,median=median(value),LQR=quantile(value,0.25),UQR=quantile(value,0.75)),
+  by=c("variable","Sex")]
+
+kt <- m[,.(p=paste0("p=",format.pval(kruskal.test(value ~ Sex)$p.value)),
+           ymx=max(value)),
+        by=c("variable")]
+mk <- merge(m,kt,by="variable")
+mk[,varp:=paste(variable, p)]
+
+ggplot(mk) +
+  geom_boxplot(aes(x=Sex,y=value,col=Sex,fill=Sex),alpha=0.5,shape=NA) +
+  geom_point(aes(x=Sex,y=value,col=Sex,fill=Sex),width=0.05) +
+  ## geom_text(aes(x=1,y=ymx,label=p),data=kt) +
+  scale_y_log10("value, log scale") +
+  scale_colour_seaborn() +
+  scale_fill_seaborn() +
+  background_grid(major="y") +
+  facet_wrap(~varp,scales="free") +
+  ggtitle("Assays by Sex",sub="Kruskal Wallis tests")
+
+kt <- m[,.(p=paste0("p=",format.pval(kruskal.test(value ~ Severity)$p.value)),
+           ymx=max(value)),
+        by=c("variable")]
+mk <- merge(m,kt,by="variable")
+mk[,varp:=paste(variable, p)]
+
+library(PMCMRplus)
+
+kt <- m[,.(p=paste0("p=",format.pval(cuzickTest(value ~ Severity)$p.value)),
+           ymx=max(value)),
+        by=c("variable")]
+mk <- merge(m,kt,by="variable")
+mk[,varp:=paste(variable, p)]
+
+ggplot(mk[!is.na(value) & !is.na(Severity)]) +
+  geom_boxplot(aes(x=Severity,y=value,col=Severity,fill=Severity),alpha=0.5,shape=NA) +
+  geom_jitter(aes(x=Severity,y=value,col=Severity,fill=Severity),width=0.05) +
+  ## geom_text(aes(x=1,y=ymx,label=p),data=kt) +
+  scale_y_log10("value, log scale") +
+  scale_colour_manual(values=c("darkgreen","orange","red")) +
+  scale_fill_manual(values=c("darkgreen","orange","red")) +
+  ## scale_colour_seaborn() +
+  ## scale_fill_seaborn() +
+  background_grid(major="y") +
+  facet_wrap(~varp,scales="free") +
+  ggtitle("Assays by Severity",sub="Cuzick test for trend")
+```
+
+IgG levels tended to trend up with days from first symptom while IgA and IgM showed downwards trends.
+Similar patterns were seen with days from PCR+, although  trends were stronger for IgA and IgM, but no convincing trend for IgG. 
+<!-- There was no consistent relationship with IL-6 or PSV.ID50. -->
+
+```{r}
+kt <- m[,.(p=paste0("p=",format.pval(cor.test(value,Days.FFS,method="spearman")$p.value)),
+           ymx=max(value)),
+        by=c("variable")]
+mk <- merge(m,kt,by="variable")
+mk[,varp:=paste(variable, p)]
+ggplot(mk[order(Days.FFS)], aes(x=Days.FFS, y=value)) +
+  geom_point() +
+  geom_smooth(aes(colour=variable,fill=variable),method="lm") +
+  scale_y_log10("value, log scale") +
+  scale_colour_seaborn() +
+  scale_fill_seaborn() +
+  background_grid(major="y") +
+  facet_wrap(~varp,scales="free")  + 
+  ggtitle("Ig by Days from first symptom",sub="Spearman rank correlation test")
+
+kt <- m[,.(p=paste0("p=",format.pval(cor.test(value,Days.PCR,method="spearman")$p.value)),
+           ymx=max(value)),
+        by=c("variable")]
+mk <- merge(m,kt,by="variable")
+mk[,varp:=paste(variable, p)]
+ggplot(mk[order(Days.PCR)], aes(x=Days.PCR, y=value)) +
+  geom_point() +
+  geom_smooth(aes(colour=variable,fill=variable),method="lm") +
+  scale_y_log10("value, log scale") +
+  scale_colour_seaborn() +
+  scale_fill_seaborn() +
+  background_grid(major="y") +
+  facet_wrap(~varp,scales="free")  + 
+  ggtitle("Ig by Days from PCR",sub="Spearman rank correlation test")
+
+kt <- m[,.(p=paste0("p=",format.pval(cor.test(value,Years,method="spearman")$p.value)),
+           ymx=max(value)),
+        by=c("variable")]
+mk <- merge(m,kt,by="variable")
+mk[,varp:=paste(variable, p)]
+
+
+ggplot(mk[order(Days.FFS)], aes(x=Years, y=value)) +
+  geom_point() +
+  geom_smooth(aes(colour=variable,fill=variable),method="lm") +
+  scale_y_log10("value, log scale") +
+  scale_colour_seaborn() +
+  scale_fill_seaborn() +
+  background_grid(major="y") +
+  facet_wrap(~varp,scales="free")   +
+  ggtitle("Ig by Years since year of birth",sub="Spearman rank correlation test")
+```
+
+```{r}
+library(sanon)
+kt <- m[!is.na(Severity),.(p=paste0("p=",format.pval(sanon(outcome=value,group=Sex,strt=Severity)$p)),
+           ymx=max(value)),
+        by=c("variable")]
+mk <- merge(m,kt,by="variable")
+mk[,varp:=paste(variable, p)]
+mk[,Sex.Severity:=factor(paste(Sex,Severity,sep="."),
+                         c("F.1","M.1","F.2","M.2","F.3","M.3"))]
+
+ggplot(mk[], aes(x=Sex.Severity, y=value, fill=Sex, pch=Severity)) +
+  geom_boxplot(alpha=0.5) +
+  geom_point() +
+  geom_smooth(aes(colour=variable,fill=variable),method="lm") +
+  scale_y_log10("value, log scale") +
+  scale_colour_seaborn() +
+  scale_fill_seaborn() +
+  background_grid(major="y") +
+  facet_wrap(~varp,scales="free")  + 
+  ggtitle("Ig by Sex | Severity",sub="stratified Mann-Whitney")
+
+```
+
+# Relationship of IL-6 and PSV to antibody levels
+
+IL-6 showed positive correlations with IgA levels and PSV.ID50 both showed positive correlations with all Ig levels.
+
+```{r,results="asis"}
+m <- melt(x,measure.vars=grep("Ig",names(x),value=TRUE))
+kt <- m[,.(p=paste0("p=",format.pval(cor.test(value,IL.6,method="spearman")$p.value)),
+           ymx=max(value)),
+        by=c("variable")]
+mk <- merge(m,kt,by="variable")
+mk[,varp:=paste(variable, p)]
+ggplot(mk, aes(x=IL.6, y=value)) +
+  geom_point() +
+  geom_smooth(aes(colour=variable,fill=variable),method="lm",se=FALSE) +
+  scale_y_log10("Antibody level, log scale") +
+  scale_x_log10("IL-6, log scale") +
+  scale_colour_seaborn() +
+  scale_fill_seaborn() +
+  background_grid(major="y") +
+  facet_wrap(~varp,scales="free")  + 
+  ggtitle("Antibody levels by IL-6",sub="Spearman rank correlation test")
+
+kt <- m[,.(p=paste0("p=",format.pval(cor.test(value,PSV.ID50,method="spearman")$p.value)),
+           ymx=max(value)),
+        by=c("variable")]
+mk <- merge(m,kt,by="variable")
+mk[,varp:=paste(variable, p)]
+ggplot(mk, aes(x=PSV.ID50, y=value)) +
+  geom_point() +
+  geom_smooth(aes(colour=variable,fill=variable),method="lm",se=FALSE) +
+  scale_y_log10("Antibody level, log scale") +
+  scale_x_log10("PSV.ID50, log scale") +
+  scale_colour_seaborn() +
+  scale_fill_seaborn() +
+  background_grid(major="y") +
+  facet_wrap(~varp,scales="free")  + 
+  ggtitle("Antibody levels by PSV.ID50",sub="Spearman rank correlation test")
+```
+
+IL-6 and PSV.ID50 themselves showed a non-significant positive relationship (p=0.2).
+
+```{r,results="asis"}
+kt <- with(x[!is.na(IL.6) & !is.na(PSV.ID50)],
+           cor.test(PSV.ID50, IL.6,method="spearman")$p.value)
+ggplot(x, aes(x=IL.6,y=PSV.ID50)) +
+  geom_point() +
+  geom_smooth(method="lm",se=FALSE) +
+  background_grid(major="y") +
+  scale_y_log10("PSV.ID50, log scale") +
+  scale_x_log10("IL-6, log scale") +
+  ggtitle("IL-6 by PSV.ID50",sub=paste("Spearman rank correlation test p =",format.pval(kt)))
+```
+
+## Multivariate analysis of biochemical measures
+
+We fit multivariate linear models to log transformed assay data, to try and separate out effects of severity, sex, years and Days.  Overall, severity showed the most consistent relationship with any measure, and suggests that the weaker univariate relationships with Sex and Years above are probably indirect associations reflecting the relationships between Sex, Years and Severity, with Severity the primary driver of differences in Ig levels.
+
+Days since first symptom and since PCR+ are highly correlated, so we can't include both in any single analysis.  Instead, we show results for one, then the other.
+### Days from first symptom
+
+```{r,results="asis"}
+
+measures <- setdiff(names(x), c("Exp.ID","Cohort","COVID.Patient.ID", "Days.FFS", "Severity", "Sex","DOB", "Years","Sex.Severity","y","Days.PCR"))
+
+cf <- vector("list",length(measures))
+names(cf) <- measures
+for(nm in measures) {
+  cat("\n\n###",nm,"\n")
+  x$y <- log(x[[nm]])
+  form <- paste("y ~ Days.FFS + Severity + Sex + Years")  %>% as.formula()
+  use=complete.cases(x[,.(Days.FFS,Severity,Sex,Years,y)])
+  mod <- lm(form, data=x[use,])
+  cf[[nm]] <- cbind(as.data.frame(summary(mod)$coefficients),nm=nm)
+  kable(summary(mod)$coefficients)  %>% print()
+  ## tab_model(mod)  %>% print()
+  if(nm=="IL.6") {
+    use2 <- use & x$IL.6 < 200
+    cat("\n\n*checking robustness with 2 outliers removed*\n")
+    mod <- lm(form, data=x[use2,])
+    kable(summary(mod)$coefficients)  %>% print()
+  }
+  if(nm=="PSV.ID50") {
+    use2 <- use & x$PSV.ID50 < 80000
+    cat("\n\n*checking robustness with 1 outlier removed*\n")
+    mod <- lm(form, data=x[use2,])
+    kable(summary(mod)$coefficients)  %>% print()
+  }
+}
+cf %<>% do.call(rbind,.) %>% as.data.table(.,keep.rownames=TRUE)
+setnames(cf,make.names(names(cf)))
+```
+
+```{r}
+cfs <- cf[grep("Severity",rn)]
+cfs[,Severity:=as.numeric(sub(".*Severity","",rn))]
+cf0 <- cfs[Severity==2]
+cf0[,Severity:=1][,Estimate:=0][,Std..Error:=0]
+cfs <- rbind(cfs,cf0)
+cfs$Severity  %<>% as.factor()
+
+ggplot(cfs,aes(x=Severity,
+              y=exp(Estimate),
+              ymin=exp(Estimate-1.96*Std..Error),
+              ymax=exp(Estimate+1.96*Std..Error),
+              pch=Severity==1,
+              col=Severity==1
+              )) +
+  geom_hline(yintercept=1,lty=2) +
+  geom_pointrange() +
+  scale_shape_manual(values=c("TRUE"=15,"FALSE"=16)) +
+  scale_colour_manual(values=c("TRUE"="grey","FALSE"="black")) +
+  scale_y_log10() +
+  facet_wrap(~nm,ncol=1,strip.position="top") +
+  labs(y="Fold change from Severity=1",x="Severity") +
+  theme(legend.position="none",
+        strip.text=element_text(face="bold"),
+        strip.background=element_blank(),
+        strip.placement="outside") +
+  background_grid(major="y") +
+  coord_flip() +
+  ggtitle("Fold change compared to Severity=1, adjusted for year of birth, sex, days from first symptom")
+
+cfd <- cf[grep("Days",rn)]
+ggplot(cfd,aes(x=nm,y=exp(Estimate),
+               ymin=exp(Estimate-1.96*Std..Error),
+               ymax=exp(Estimate+1.96*Std..Error)
+               )) +
+  geom_hline(yintercept=1,lty=2) +
+  geom_pointrange() +
+  labs(y="Fold change per Day",x="") +
+  coord_flip() +
+  background_grid(major="y") +
+  ggtitle("Fold change per day from First Symptom, adjusted for severity, year of birth, sex")
+
+cfd <- cf[grep("Years",rn)]
+ggplot(cfd,aes(x=nm,y=exp(Estimate),
+               ymin=exp(Estimate-1.96*Std..Error),
+               ymax=exp(Estimate+1.96*Std..Error)
+               )) +
+  geom_hline(yintercept=1,lty=2) +
+  geom_pointrange() +
+  labs(y="Fold change per year",x="") +
+  coord_flip() +
+  background_grid(major="y") +
+  ggtitle("Fold change per year since DOB, adjusted for severity, days from first symptom, sex")
+
+cfd <- cf[grep("Sex",rn)]
+ggplot(cfd,aes(x=nm,y=exp(-Estimate),
+               ymin=exp(-Estimate+1.96*Std..Error),
+               ymax=exp(-Estimate-1.96*Std..Error)
+               )) +
+  geom_hline(yintercept=1,lty=2) +
+  geom_pointrange() +
+  labs(y="Fold change",x="") +
+  coord_flip() +
+  background_grid(major="y") +
+  ggtitle("Fold change associated with male sex, adjusted for severity, year of birth, days from first symptom")
+
+```
+
+### Days from PCR
+
+```{r,results="asis"}
+
+measures <- setdiff(names(x), c("Exp.ID","Cohort","COVID.Patient.ID", "Days.FFS", "Severity", "Sex","DOB", "Years","Sex.Severity","y","Days.PCR"))
+
+cf <- vector("list",length(measures))
+names(cf) <- measures
+for(nm in measures) {
+  cat("\n\n###",nm,"\n")
+  x$y <- log(x[[nm]])
+  form <- paste("y ~ Days.PCR + Severity + Sex + Years")  %>% as.formula()
+  use=complete.cases(x[,.(Days.PCR,Severity,Sex,Years,y)])
+  mod <- lm(form, data=x[use,])
+  cf[[nm]] <- cbind(as.data.frame(summary(mod)$coefficients),nm=nm)
+  kable(summary(mod)$coefficients)  %>% print()
+  ## tab_model(mod)  %>% print()
+  if(nm=="IL.6") {
+    use2 <- use & x$IL.6 < 200
+    cat("\n\n*checking robustness with 2 outliers removed*\n")
+    mod <- lm(form, data=x[use2,])
+    kable(summary(mod)$coefficients)  %>% print()
+  }
+  if(nm=="PSV.ID50") {
+    use2 <- use & x$PSV.ID50 < 80000
+    cat("\n\n*checking robustness with 1 outlier removed*\n")
+    mod <- lm(form, data=x[use2,])
+    kable(summary(mod)$coefficients)  %>% print()
+  }
+}
+cf %<>% do.call(rbind,.) %>% as.data.table(.,keep.rownames=TRUE)
+setnames(cf,make.names(names(cf)))
+```
+
+```{r}
+cfs <- cf[grep("Severity",rn)]
+cfs[,Severity:=as.numeric(sub(".*Severity","",rn))]
+cf0 <- cfs[Severity==2]
+cf0[,Severity:=1][,Estimate:=0][,Std..Error:=0]
+cfs <- rbind(cfs,cf0)
+cfs$Severity  %<>% as.factor()
+
+ggplot(cfs,aes(x=Severity,
+              y=exp(Estimate),
+              ymin=exp(Estimate-1.96*Std..Error),
+              ymax=exp(Estimate+1.96*Std..Error),
+              pch=Severity==1,
+              col=Severity==1
+              )) +
+  geom_hline(yintercept=1,lty=2) +
+  geom_pointrange() +
+  scale_shape_manual(values=c("TRUE"=15,"FALSE"=16)) +
+  scale_colour_manual(values=c("TRUE"="grey","FALSE"="black")) +
+  scale_y_log10() +
+  facet_wrap(~nm,ncol=1,strip.position="top") +
+  labs(y="Fold change from Severity=1",x="Severity") +
+  theme(legend.position="none",
+        strip.text=element_text(face="bold"),
+        strip.background=element_blank(),
+        strip.placement="outside") +
+  background_grid(major="y") +
+  coord_flip() +
+  ggtitle("Fold change compared to Severity=1, adjusted for year of birth, sex, days from PCR+")
+
+cfd <- cf[grep("Days",rn)]
+ggplot(cfd,aes(x=nm,y=exp(Estimate),
+               ymin=exp(Estimate-1.96*Std..Error),
+               ymax=exp(Estimate+1.96*Std..Error)
+               )) +
+  geom_hline(yintercept=1,lty=2) +
+  geom_pointrange() +
+  labs(y="Fold change per Day",x="") +
+  coord_flip() +
+  background_grid(major="y") +
+  ggtitle("Fold change per day from PCR+, adjusted for severity, year of birth, sex")
+
+cfd <- cf[grep("Years",rn)]
+ggplot(cfd,aes(x=nm,y=exp(Estimate),
+               ymin=exp(Estimate-1.96*Std..Error),
+               ymax=exp(Estimate+1.96*Std..Error)
+               )) +
+  geom_hline(yintercept=1,lty=2) +
+  geom_pointrange() +
+  labs(y="Fold change per year",x="") +
+  coord_flip() +
+  background_grid(major="y") +
+  ggtitle("Fold change per year since DOB, adjusted for severity, days from PCR+, sex")
+
+cfd <- cf[grep("Sex",rn)]
+ggplot(cfd,aes(x=nm,y=exp(-Estimate),
+               ymin=exp(-Estimate+1.96*Std..Error),
+               ymax=exp(-Estimate-1.96*Std..Error)
+               )) +
+  geom_hline(yintercept=1,lty=2) +
+  geom_pointrange() +
+  labs(y="Fold change",x="") +
+  coord_flip() +
+  background_grid(major="y") +
+  ggtitle("Fold change associated with male sex, adjusted for severity, year of birth, days from PCR+")
+
+```
+
+# Notes from Xaq
+
+> In our cross-sectional patient cohort, IgG levels trended upward for the first two months post disease onset, whilst IgM and IgA went in the opposing direction
+
+Agreed, evidenced in the multivariate analysis above
+
+> We found anti-viral antibody levels to increase with disease severity (P = X), supporting the lower titres observed in healthy cohort participants. This was most pronounced for anti-RBD IgA, indicative of advancing mucosal disease (P, Fig X).
+
+Agreed, evidenced in the multivariate analysis above.  No single p value, you get one per antibody (see tables above).  Note that for IgA and IL-6 there is a trend for higher levels with severity 3, while for IgM and IgG there is a trend for higher levels with severity 2, though these differences are not significant.  The differences with severity 1 are mostly significant.
+
+> females showed lower anti-viral IgA levels than males in non-hospitalised and hospitalised groups (Supp Fig X),
+
+This is seen in the raw data, and is nominally significant for RBD IgA in the multivariate analysis. However, given the number of tests for a relationship with sex, it wouldn't survive any form of multiple testing correction, so I wouldn't make a big deal of it unless there is some prior finding you are trying to replicate.
+
+> In agreement with older individuals being more susceptible to COVID-19, and the effect of ageing on the human immune system (ref, ref, ref), date of birth was negatively correlated with all features in the dataset (Fig X).
+
+This is seen on univariate analyses, but not multivariate.  I interpret this as features being positively correlated with Severity, and older ages over-represented in more severe groups.  The fact that severity remains highly significant in multivariate analysis while Year of birth does not, suggests to me that Severity to a greater degree than age drives the differences in measures.
+
+> Disease severity and IgA levels also correlated with elevated serum IL-6
+
+Agreed
+
+> As observed for antibody titres, patients showed a large range of neutralisation capacity, with increased anti-viral antibody levels, and intensive care occupancy, correlating with increased neutralisation capacity. Importantly, neutralisation was more strongly associated with anti-RBD, than anti-spike levels for all isotypes (Fig X), with anti-RBD IgG the strongest predictor of neutralisation capacity. 
+
+This appears to be true, though you need to be cautious about making claims for RBD vs Spike, unless you are absolutely sure that assays for each have identical levels of noise.
+
+
+# Notes for methods
+
+All univariate comparisons were performed using non-parametric analyisis (Kruskal-Wallis, stratified Mann-Whitney, hypergeometric exact tests and Spearman rank correlation), while multivariate comparisons were performed using linear regression of log transformed measures and Wald tests. For multivariate tests, all biochemical measures (IL-6, PSV, IgG, IgA, IgM) were log transformed for analysis, to improve symmetry of the distribution.  
+
+<!-- Clustering also interesting - but perhaps not what was asked for! -->
+
+<!-- ```{r,results="asis"} -->
+
+<!-- ## library(mclust) -->
+<!-- ## ig <- setdiff(measures, c("IL.6","PSV.ID50")) -->
+<!-- ## BIC <- mclustBIC(log(x[,ig,with=FALSE])) -->
+<!-- ## ## plot(BIC) -->
+<!-- ## mod1 <- Mclust(log(x[,ig,with=FALSE]), x = BIC) -->
+<!-- ## summary(mod1, parameters = TRUE)        -->
+<!-- ## ## plot(mod1) -->
+<!-- ## tt <- table(Severity=x$Severity, Class=4-mod1$classification) -->
+<!-- ## print(tt) -->
+<!-- ## chisq.test(tt) -->
+
+<!-- ``` -->
+
