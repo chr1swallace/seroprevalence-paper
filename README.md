@@ -16,7 +16,10 @@ Rscript -e 'rmarkdown::render("load-and-explore-data.Rmd")'
 Generate different ML probabilistic predictions
 
 ```{sh}
-
+Rscript univar_cv_mods.R ## univariate models (fixed cut-off & ML/stats); CV on historical data
+Rscript ml_code.R ## bivariate models (ML/stats); CV on historical data
+Rscript elisa_finals.R ## training bivariate models (ML/stats) on the historical data, predicting on BD/pregnant women
+Rscript 3sd_univar_mods.R ## univariate models (fixed cut-off & ML/stats); train on historical data, predict on BD/pregnant women
 ```
 
 Compare different ML methods ("bake off")
