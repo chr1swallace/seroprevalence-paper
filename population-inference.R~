@@ -1,4 +1,4 @@
-source("common.R")
+source("~/Projects/elisa/common.R")
 library(Hmisc) # binconf
 (load(file=file_rdata_v5))
 
@@ -179,8 +179,8 @@ fitone <- function(x,probvar="prob.log",byvars=c("type","Week"),M=1000) {
   summ2[,c(byvars,c("N","Est","Lower","Upper","qm","ll","ul")),with=FALSE]
 }
 
+pred <- lapply(c("3sd","ENS","LDA"), function(m) {
 ## per group and week
-m <- "ENS"
 probs <- fitone(x,paste0("prob.",m),byvars=c("type","Week"))
 probs[order(type,Week),.(type,Week,N,estimate=qm,lower.ci=ll,upper.ci=ul)]
 
@@ -188,14 +188,11 @@ probs[order(type,Week),.(type,Week,N,estimate=qm,lower.ci=ll,upper.ci=ul)]
 probs2 <- fitone(x,paste0("prob.",m),byvars="Week")[,type:="Combined"]
 probs2[order(Week),.(Week,N,estimate=qm,lower.ci=ll,upper.ci=ul)]
 
-## per group
-probs3 <- fitone(x,paste0("prob.",m),byvars="type")[,Week:="Combined"]
-probs3[order(type),.(type,N,estimate=qm,lower.ci=ll,upper.ci=ul)]
-
 ## combine
-probs <- rbind(probs,probs2,probs3)[,method:=m]
+probs <- rbind(probs,probs2)[,method:=m]
 probs[,week_num:=as.numeric(sub("Wk","",Week))]
 probs[,type:=factor(type,levels=c("Blood donors","Pregnant volunteers","Combined"))]
+}) %>% rbindlist()
 
 tmp <- dcast(pred[type!="Combined" & method=="ENS" & Week!="Wk14"],
       Week ~ type, value.var="Est")
@@ -203,7 +200,6 @@ tmp
 setnames(tmp,make.names(names(tmp)))
 tmp[,.(bd=mean(Blood.donors),pv=mean(Pregnant.volunteers))]
 
-pred <- probs
 pred[type=="Combined" & Week=="Wk14",.(Week,method,qm)]
 pred[type=="Combined" & Week=="Wk25",.(Week,method,qm)]
 
@@ -223,3 +219,43 @@ options(digits=6)
 probs[order(type,Week),.(type,Week,N,estimate=qm,lower.ci=ll,upper.ci=ul)]
 fwrite(probs[order(type,Week),.(type,Week,N,estimate=qm,lower.ci=ll,upper.ci=ul)],
        file=file.path(d,"estimates.csv"))
+################################################################################
+
+## logistic 
+
+fitlog <- function(x,probvar="prob.svmlin",byvars=c("type","Week"),M=10) {
+  summ <- lapply(1:M, function(j) {
+    x[,y:=runif(.N) <= x[[probvar]] ] # simulate case status conditional on fit
+    x[,.(yhat=sum(y),phat=mean(y),varp=mean(y)*mean(1-y)/.N,N=.N,j=j),by=byvars]
+  })
+  ## wilson's interval with observed data
+  wilsons <- with(summ, binconf(yhat,N))
+  summ <- cbind(summ,wilsons)
+  summ2 <- summ[,.(N=mean(N),qm=mean(phat),um=mean(varp),bm=var(phat),Est=mean(PointEst),Lower=mean(Lower),Upper=mean(Upper)),
+                by=byvars]
+  summ2[,Tm:=(1+1/M)*bm + um]
+  if(any(summ2$bm==0)) { # all realisations the same
+    summ2[bm==0, c("v","rm"):=list(1000000000,0)]
+  }
+  summ2[bm!=0, c("v","rm"):=list((M-1)*(1+(um/((1+ (1/M))*bm)))^2, #convert to normal if bm = 0 and um != 0
+              (1 + (1/M))*(bm/um))]
+  summ2[,ll:=lower.limit(z = qt(0.975, df = v), n = N, r.m = rm,
+                             mean_q = qm),by=byvars]
+  summ2[,ul:=upper.limit(z = qt(0.975, df = v), n = N, r.m = rm,
+                             mean_q = qm),by=byvars]
+  options(digits=2)
+  summ2[,.(type,Week,N,Est,Lower,Upper,qm,ll,ul)]
+}
+
+lda <- fitone(x,"prob.lda")[,method:="lda"]
+svm <- fitone(x,"prob.svmlin")[,method:="svmlin"]
+ens <- fitone(x,"prob.ens")[,method:="ensemble"]
+probs <- rbind(lda,svm,ens)
+probs[order(type,Week)]
+probs[,week_num:=as.numeric(sub("Wk","",Week))+(as.numeric(factor(method))-1)/10]
+
+ggplot(probs,aes(x=week_num,y=qm,ymin=ll,ymax=ul,col=method)) +
+  geom_pointrange() +
+  geom_smooth(se=FALSE,method="lm",linetype="dotted") +
+  facet_wrap(~type,scales="free") +
+  background_grid(major="y")
