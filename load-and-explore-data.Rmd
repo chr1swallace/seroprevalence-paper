@@ -79,9 +79,21 @@ message("\nnumber of No S C, old/new: ",
 
 x5$OD  %<>% as.numeric()
 x5$nm <- "200702"
-xcomb <- rbind(x[redo==FALSE][,redo:=NULL], x5)
 
+## v6 1612
+(nm <- excel_sheets(file_xlsx_v6))
+## data <- lapply(seq_along(nm), function(i) {
+## check all data with assay date before july already represented
+x6 <- read_xlsx(file_xlsx_v6,sheet=1)  %>% as.data.table()
+setnames(x6,make.names(names(x6)))
+setnames(x6,"Sample.ID.","Sample.ID")
+setnames(x6,"Antigen","Ag")
+setnames(x6,"Collection.date","Sampling.date")
+x6[,nm:="201216"]
+x6[,OD:=as.numeric(OD)]
+head(x6)
 
+xcomb <- rbind(x[redo==FALSE][,redo:=NULL], x5, x6)
 data <- c(data[-1], list(xcomb))  %>% rbindlist(., fill=TRUE)
 
 ## label nicely
@@ -140,7 +152,11 @@ mm3 <- merge(m[group %in% c("200702") & Ag=="SPIKE"],
             m[group %in% c("200702") & Ag=="RBD"],
             by=c("group","Sample.ID","type","stype"),
             suffixes=c(".spike",".rbd"))[,rowid.spike:=NULL][,rowid.rbd:=NULL]
-mm <- rbind(mm1,mm2,mm3)
+mm4 <- merge(m[group %in% c("201216") & Ag=="SPIKE"],
+            m[group %in% c("201216") & Ag=="RBD"],
+            by=c("group","Sample.ID","type","stype"),
+            suffixes=c(".spike",".rbd"))[,rowid.spike:=NULL][,rowid.rbd:=NULL]
+mm <- rbind(mm1,mm2,mm3,mm4)
 setnames(mm,c("NOD.rbd","NOD.spike"),c("RBD","SPIKE"))
 
 plot.adjusted <- ggplot(mm[type!="No sample control"][order(stype,decreasing=TRUE)],
@@ -288,6 +304,6 @@ m[group=="COVID19",group:="COVID+"]
 
 m <- m[,.(group,type,rowid,Sample.ID,OD.spike,OD.rbd,SPIKE,RBD,fold1,fold2,fold3,fold4,fold5,fold6,fold7,fold8,fold9)]
 ## save
-save(m, file=file_rdata_v5, version=2)
+save(m, file=file_rdata_v6, version=2)
 save(m, file="adjusted-data.RData", version=2)
 ```
