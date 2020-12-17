@@ -5,7 +5,6 @@ library(kernlab)
 library(caret)
 library(parallel)
 
-file_rdata <- file_rdata_v5
 (load(file_rdata)) #m
 m[, type:=make.names(type)]
 #type: historical controls = controls, covid = cases.

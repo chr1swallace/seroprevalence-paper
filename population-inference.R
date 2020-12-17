@@ -1,6 +1,6 @@
 source("common.R")
 library(Hmisc) # binconf
-(load(file=file_rdata_v5))
+(load(file=file_rdata))
 
 ################################################################################
 
@@ -197,15 +197,16 @@ probs <- rbind(probs,probs2,probs3)[,method:=m]
 probs[,week_num:=as.numeric(sub("Wk","",Week))]
 probs[,type:=factor(type,levels=c("Blood donors","Pregnant volunteers","Combined"))]
 
+pred <- probs
+pred[type=="Combined" & Week=="Wk14",.(Week,method,qm)]
+pred[type=="Combined" & Week=="Wk25",.(Week,method,qm)]
+
 tmp <- dcast(pred[type!="Combined" & method=="ENS" & Week!="Wk14"],
       Week ~ type, value.var="Est")
 tmp
 setnames(tmp,make.names(names(tmp)))
 tmp[,.(bd=mean(Blood.donors),pv=mean(Pregnant.volunteers))]
 
-pred <- probs
-pred[type=="Combined" & Week=="Wk14",.(Week,method,qm)]
-pred[type=="Combined" & Week=="Wk25",.(Week,method,qm)]
 
 ggplot(pred[type=="Combined"],aes(x=week_num,y=qm,ymin=ll,ymax=ul#,col=type
                                   )) +

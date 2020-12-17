@@ -184,7 +184,7 @@ Finally, we considered the prediction surface associated with SVM, LDA, SVM-LDA 
 When considering both proteins, the training data is perfectly linearly separable. Both SVM and LDA offer linear classification boundaries but we can see that probability transition from negative to positive cases is much sharper for LDA, potentially resulting in false negatives when applied to the test data, but giving the model high specificity. SVM exhibits a softer probability transition around its classification boundary, offering a much more nuanced approach to the points lying in the mid-range of the two proteins. These points are the hardest to classify partially due to the relative scarcity of observations in this region in the test dataset. We assessed that combining the two methods, LDA and SVM, would allow an ensemble method to benefit from high specificity of the LDA and high sensitivity and a more gradual probability transition around the classification boundary of the SVM, and chose to use the ensemble method to analyse the test data.
 
 ```{r, echo=FALSE, results=FALSE}
-(load(file_rdata_v5)) #m
+(load(file_rdata)) #m
 m[, type:=make.names(type)]
 
 dat <- m[!(type %in% c("No.sample.control", "Patient.4")),]

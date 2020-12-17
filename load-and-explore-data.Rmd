@@ -31,7 +31,7 @@ setnames(data[[6]],"Antigen","Ag")
 for(i in c(2,3,4,5,6)) {
   data[[i]][,nm:=nm[i]][,rowid:=1:.N]
 }
-
+x3=data[-1]
 
 ## load v4 data - just take newest data
 library(readxl)
@@ -80,42 +80,73 @@ message("\nnumber of No S C, old/new: ",
 x5$OD  %<>% as.numeric()
 x5$nm <- "200702"
 
-## v6 1612
-(nm <- excel_sheets(file_xlsx_v6))
+## add weeks 30-34 data - x6 superceded by v7
+## add rerun for plates YP, YO and SP replaced with plates ÅÅ, ÅP, ÅQ, and inc. some more negative controls.
+x7 <- read_xlsx(file_xlsx_v7,sheet=1)  %>% as.data.table()
+setnames(x7,make.names(names(x7)))
+head(x7)
+x7$OD  %<>% as.numeric()
+x7$nm <- "200923"
+
+## v8 - 
+## I ran an additional 33 individuals who are PCR+ staff members at the hospital, and some controls. 
+## I have run another 300 spring 2019 controls for S and RBD, attached. 
+
+x8a=read_xlsx(file_xlsx_v8[[1]],sheet=1) %>% as.data.table()
+x8b=read_xlsx(file_xlsx_v8[[2]],sheet=1) %>% as.data.table()
+names(x8a)[1]="Sample ID" # funny chararcter in "Sample ID "
+x8=rbind(x8a,x8b,fill=TRUE)
+setnames(x8, make.names(names(x8)))
+setnames(x8, "Antigen","Ag") # to match previous
+setnames(x8, "Collection.date","Sampling.date") # to match previous
+x8$OD  %<>% as.numeric()
+x8[,nm:="201007"]
+x8[is.na(Assay.date),Assay.date:=201007] # some entries missing
+
+## x9 1612
+(nm <- excel_sheets(file_xlsx_v9))
 ## data <- lapply(seq_along(nm), function(i) {
 ## check all data with assay date before july already represented
-x6 <- read_xlsx(file_xlsx_v6,sheet=1)  %>% as.data.table()
-setnames(x6,make.names(names(x6)))
-setnames(x6,"Sample.ID.","Sample.ID")
-setnames(x6,"Antigen","Ag")
-setnames(x6,"Collection.date","Sampling.date")
-x6[,nm:="201216"]
-x6[,OD:=as.numeric(OD)]
-head(x6)
+x9 <- read_xlsx(file_xlsx_v9,sheet=1)  %>% as.data.table()
+setnames(x9,make.names(names(x9)))
+setnames(x9,"Sample.ID.","Sample.ID")
+setnames(x9,"Antigen","Ag")
+setnames(x9,"Collection.date","Sampling.date")
+x9[,nm:="201216"]
+x9[,OD:=as.numeric(OD)]
+head(x9)
 
-xcomb <- rbind(x[redo==FALSE][,redo:=NULL], x5, x6)
-data <- c(data[-1], list(xcomb))  %>% rbindlist(., fill=TRUE)
+## combine
+xcomb <- rbind(x[redo==FALSE][,redo:=NULL], x5, x7,x8, x9,fill=TRUE)
+data <- c(x3, list(xcomb))  %>% rbindlist(., fill=TRUE)
 
 ## label nicely
-m <- data
+m <- copy(data)
 sample(m$Sample.ID,100)
 m[,group:=sub(" .*","",nm)]
 m[Sample.ID %in% c("No S C","No S Ctrl","NO S C"), type:="No sample control"]
+m[,Sample.ID:=sub("wk","Wk",Sample.ID)][,Sample.ID:=sub("WK","Wk",Sample.ID)]
 m[Sample.ID=="P4", type:="Patient 4"]
-m[Status=="COVID PCR+",type:="COVID"]
+m[Status %in% c("COVID PCR+","COVID+"),type:="COVID"]
 m[grepl("^P Wk|^p Wk|^P WK",Sample.ID), type:="Pregnant volunteers"] # fix case typo
 m[grepl("^Wk",Sample.ID), type:="Blood donors"]
 m[grepl("^Sp2019|B1q",Sample.ID), type:="Historical controls"]
 m[type %in% c("Pregnant volunteers","Historical donors"),Sample.ID:=gsub("WK|wk","Wk",Sample.ID)]
 m[,stype:=factor(type)][,stype:=relevel(stype,"Historical controls")]
 ## with(m[is.na(type)], sample(Sample.ID,100))
+m[is.na(type) & grepl("Spring2019",Sample.ID), type:="Historical controls"]
+m[is.na(type) & grepl("Spring2019",Sample.ID), type:="Historical controls"]
+with(m[is.na(type)], table(Sampling.date))
 head(m[is.na(type)])
 tail(m[is.na(type)])
 m[!is.na(Assay.date),
   adate:=as.Date(paste0("20",Assay.date),format="%Y%m%d")]
 head(m[Plate==1])
 tail(m[Plate==1])
+m[grep("Wk",Sample.ID), Week:=sub(".*(Wk[0-9]+).*","\\1",Sample.ID) ]
+table(m$Week)
 ```
+
 
 ## adjust OD by no sample controls
 
@@ -140,23 +171,31 @@ m[,NOD:=OD*mean(norm.plate$control.plate) /
 
 ## no more need of no s c
 m <- m[type!="No sample control"]
-mm1 <- merge(m[group %in% c("BD","Preg") & Ag=="SPIKE"],
-            m[group %in% c("BD","Preg") & Ag=="RBD"],
+mm1 <- merge(m[group %in% c("BD","Preg") & Ag=="SPIKE" & type!="No sample control"],
+            m[group %in% c("BD","Preg") & Ag=="RBD" & type!="No sample control"],
             by=c("group","Sample.ID","rowid","type","stype"),
             suffixes=c(".spike",".rbd"))[,rowid:=NULL]
-mm2 <- merge(m[group %in% c("COVID19") & Ag=="SPIKE"],
-            m[group %in% c("COVID19") & Ag=="RBD"],
+mm2 <- merge(m[group %in% c("COVID19") & Ag=="SPIKE" & type!="No sample control"],
+            m[group %in% c("COVID19") & Ag=="RBD" & type!="No sample control"],
             by=c("group","Sample.ID","type","stype"),
             suffixes=c(".spike",".rbd"))[,rowid.spike:=NULL][,rowid.rbd:=NULL]
-mm3 <- merge(m[group %in% c("200702") & Ag=="SPIKE"],
-            m[group %in% c("200702") & Ag=="RBD"],
+mm3 <- merge(m[group %in% c("200702") & Ag=="SPIKE" & type!="No sample control"],
+            m[group %in% c("200702") & Ag=="RBD" & type!="No sample control"],
             by=c("group","Sample.ID","type","stype"),
             suffixes=c(".spike",".rbd"))[,rowid.spike:=NULL][,rowid.rbd:=NULL]
-mm4 <- merge(m[group %in% c("201216") & Ag=="SPIKE"],
+mm4 <- merge(m[group %in% c("200923") & Ag=="SPIKE" & type!="No sample control"],
+            m[group %in% c("200923") & Ag=="RBD" & type!="No sample control"],
+            by=c("group","Sample.ID","type","stype"),
+            suffixes=c(".spike",".rbd"))[,rowid.spike:=NULL][,rowid.rbd:=NULL]
+mm5 <- merge(m[group %in% c("201007") & Ag=="SPIKE" & type!="No sample control"],
+            m[group %in% c("201007") & Ag=="RBD" & type!="No sample control"],
+            by=c("group","Sample.ID","type","stype"),
+            suffixes=c(".spike",".rbd"))[,rowid.spike:=NULL][,rowid.rbd:=NULL]
+mm6 <- merge(m[group %in% c("201216") & Ag=="SPIKE"],
             m[group %in% c("201216") & Ag=="RBD"],
             by=c("group","Sample.ID","type","stype"),
             suffixes=c(".spike",".rbd"))[,rowid.spike:=NULL][,rowid.rbd:=NULL]
-mm <- rbind(mm1,mm2,mm3,mm4)
+mm <- rbind(mm1,mm2,mm3,mm4,mm5,mm6)
 setnames(mm,c("NOD.rbd","NOD.spike"),c("RBD","SPIKE"))
 
 plot.adjusted <- ggplot(mm[type!="No sample control"][order(stype,decreasing=TRUE)],
@@ -222,6 +261,8 @@ m[type=="Historical controls",.(Ag="RBD",
                       raw=sd(log(OD.rbd))/abs(mean(log(OD.rbd))),
                       adj=sd(log(RBD))/abs(mean(log(RBD)))),by=c("type","group")]
 ```
+
+
 
 However, adjustment improves comparison of distributions for same
 samples in blood/pregnant donor groups
@@ -302,8 +343,8 @@ m[group=="BD",group:="Blood Donors"]
 m[group=="Preg",group:="Pregnant volunteers"]
 m[group=="COVID19",group:="COVID+"]
 
-m <- m[,.(group,type,rowid,Sample.ID,OD.spike,OD.rbd,SPIKE,RBD,fold1,fold2,fold3,fold4,fold5,fold6,fold7,fold8,fold9)]
+m <- m[,.(group,type,Sample.ID,OD.spike,OD.rbd,SPIKE,RBD,fold1,fold2,fold3,fold4,fold5,fold6,fold7,fold8,fold9)]
 ## save
-save(m, file=file_rdata_v6, version=2)
+save(m, file=file_rdata, version=2)
 save(m, file="adjusted-data.RData", version=2)
 ```

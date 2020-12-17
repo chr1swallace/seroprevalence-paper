@@ -1,8 +1,11 @@
 source("common.R")
 library(ggplot2)
 library(cowplot)
+library(kernlab)
+library(caret)
+library(parallel)
 
-(load(file_rdata_v5)) #m
+(load(file_rdata)) #m
 m[, type := make.names(type)]
 #type: historical controls = controls, covid = cases.
 

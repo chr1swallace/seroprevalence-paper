@@ -6,7 +6,6 @@ library(caret)
 
 # d <- "/rds/user/ng414/hpc-work/elisa/results"
 
-file_rdata <- file_rdata_v5
 (load(file_rdata)) #m
 m[, type := make.names(type)]
 
@@ -97,19 +96,19 @@ save(lda.mod, svm.mod, log.mod, svm2.mod, file = "~/rds/rds-cew54-wallace-share/
 #END OF MODEL FITTING
 
 
-#PLOT
-res <- melt(res, measure.vars = c("status.SVM", "status.LDA", "status.LOG"))
-res[, method := sub("status\\.", "", variable)]
-setnames(res, "value", "status")
+## #PLOT
+## res <- melt(res, measure.vars = c("status.SVM", "status.LDA", "status.LOG"))
+## res[, method := sub("status\\.", "", variable)]
+## setnames(res, "value", "status")
 
-ddat <- dat[train.ind, 1 : 8]
-ddat[, status := type]
-ddat <- rbind(ddat, ddat, ddat)
-ddat[, method := rep(c("LDA", "SVM", "LOG"), len = nrow(ddat))]
+## ddat <- dat[train.ind, 1 : 8]
+## ddat[, status := type]
+## ddat <- rbind(ddat, ddat, ddat)
+## ddat[, method := rep(c("LDA", "SVM", "LOG"), len = nrow(ddat))]
 
-X <- rbind(res[, c("SPIKE", "RBD", "method", "status")], ddat[, c("SPIKE", "RBD", "method", "status")])
+## X <- rbind(res[, c("SPIKE", "RBD", "method", "status")], ddat[, c("SPIKE", "RBD", "method", "status")])
 
-ggplot(X, aes(x = log(SPIKE), y = log(RBD), colour = status)) + geom_point(alpha = 0.6, size = 2) + facet_grid(.~method) + theme_cowplot(font_size = 25) + background_grid()
+## ggplot(X, aes(x = log(SPIKE), y = log(RBD), colour = status)) + geom_point(alpha = 0.6, size = 2) + facet_grid(.~method) + theme_cowplot(font_size = 25) + background_grid()
 
 
 

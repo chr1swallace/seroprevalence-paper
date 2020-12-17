@@ -3,10 +3,10 @@ library(ggplot2)
 library(cowplot)
 library(kernlab)
 library(caret)
+library(parallel)
 
 # d <- "/rds/user/ng414/hpc-work/elisa/results"
 
-file_rdata <- file_rdata_v5
 (load(file_rdata)) #m
 m[, type:=make.names(type)]
 #type: historical controls = controls, covid = cases.
