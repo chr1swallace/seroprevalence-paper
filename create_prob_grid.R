@@ -24,7 +24,7 @@ thr.spk3 <- mean(spk) + 3 * sd(spk)
 thr.spk6 <- mean(spk) + 6 * sd(spk)
 
 spike.seq <- seq(min(log(dat$SPIKE)), max(log(dat$SPIKE)), len = 20)
-rbd.seq <- seq(min(log(dat$RBD)), max(log(dat$RBD)), len = 20)
+rbd.seq <- seq(min(log(dat$RBD)), max(log(dat$RBD)), len = 50)
 
 grd <- expand.grid(SPIKE = exp(spike.seq), RBD = exp(rbd.seq))
 
