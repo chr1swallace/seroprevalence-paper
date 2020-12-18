@@ -34,3 +34,4 @@ file_rdata_v7 <- file.path(d,"data-200928.RData")
 file_rdata_v8 <- file.path(d,"data-201007.RData")
 file_rdata_v9 <- file.path(d,"data-201216.RData")
 file_rdata=file_rdata_v9
+file_rdata_learner=file.path(d,"data-learner-201216.RData")

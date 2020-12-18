@@ -95,20 +95,22 @@ save(lda.mod, svm.mod, log.mod, svm2.mod, file = "~/rds/rds-cew54-wallace-share/
 
 #END OF MODEL FITTING
 
-
 ## #PLOT
-## res <- melt(res, measure.vars = c("status.SVM", "status.LDA", "status.LOG"))
-## res[, method := sub("status\\.", "", variable)]
-## setnames(res, "value", "status")
+dres <- melt(res.x, measure.vars = c("status.SVM", "status.SVM2","status.LDA", "status.LOG","status.ENS"))
+dres[, method := sub("status\\.", "", variable)]
+setnames(dres, "value", "status")
 
-## ddat <- dat[train.ind, 1 : 8]
-## ddat[, status := type]
-## ddat <- rbind(ddat, ddat, ddat)
-## ddat[, method := rep(c("LDA", "SVM", "LOG"), len = nrow(ddat))]
+train.ind <- dat$type %in% c("COVID", "Historical.controls")
+ddat <- dat[train.ind, 1 : 8]
+ddat[, status := type]
+ddat <- rbind(ddat, ddat, ddat)
+ddat[, method := rep(c("LDA", "SVM", "SVM2", "LOG", "ENS"), len = nrow(ddat))]
 
-## X <- rbind(res[, c("SPIKE", "RBD", "method", "status")], ddat[, c("SPIKE", "RBD", "method", "status")])
+X <- rbind(dres[, c("SPIKE", "RBD", "method", "status")], ddat[, c("SPIKE", "RBD", "method", "status")])
 
-## ggplot(X, aes(x = log(SPIKE), y = log(RBD), colour = status)) + geom_point(alpha = 0.6, size = 2) + facet_grid(.~method) + theme_cowplot(font_size = 25) + background_grid()
+ggplot(X, aes(x = log(SPIKE), y = log(RBD), colour = status)) + geom_point(alpha = 0.6, size = 2) +
+  facet_wrap(~method) +
+  theme_cowplot(font_size = 25) + background_grid()
 
 
 

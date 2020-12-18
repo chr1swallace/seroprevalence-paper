@@ -8,6 +8,7 @@ output: html_document
 
 ```{r, echo=FALSE, results=FALSE}
 library(knitr)
+knitr::opts_chunk$set(fig.width=12, fig.height=8)
 library(data.table)
 library(magrittr)
 library(ggplot2)
@@ -26,7 +27,6 @@ source("common.R")
 for(i in seq_along(res.x)) {
   res[[i]] <- res[[i]][, !grepl("svmquad", names(res[[i]])), with = FALSE]
   res.x[[i]] <- res.x[[i]][, !grepl("svmquad", names(res.x[[i]])), with = FALSE]
-
   res[[i]]$fold.nm <- paste0("fold",i)
   res.x[[i]]$fold.nm <- paste0("fold",i)
   res.rbd[[i]]$fold.nm <- paste0("fold",i)
@@ -51,12 +51,14 @@ identical(res$Sample.ID,res.spk$Sample.ID)
 res.x <- cbind(res.x,
                res.rbd.x[,.(pr.logreg.rbd=pr.logreg,
                         pr.svmlin.rbd=pr.svm,
+                        ## pr.svmquad.rbd=pr.svm2,
                         pr.lda.rbd=pr.lda,
                         pr.ens.log.rbd=pr.ens.log,
                         pr.ens.rbd=pr.ens
                         )],
                res.spk.x[,.(pr.logreg.spk=pr.logreg,
                             pr.svmlin.spk=pr.svm,
+                        ## pr.svmlin.rbd=pr.svm2,
                             pr.lda.spk=pr.lda,
                             pr.ens.log.spk=pr.ens.log,
                             pr.ens.spk=pr.ens
@@ -68,6 +70,7 @@ res.x <- cbind(res.x,
 
 res.x[,pr.3sd:=pr.3sd.rbd * pr.3sd.spk]
 res.x[,pr.6sd:=pr.6sd.rbd * pr.6sd.spk]
+res.x[,pr.ens2:=(pr.svm2+pr.lda)/2]
 
 res.x <- melt(res.x,
             c("fold.nm","SPIKE","RBD","group","type"),
@@ -105,6 +108,7 @@ comb[grep("rbd",method),protein:="RBD"]
 comb[grep("spk",method),protein:="SPIKE"]
 
 comb[method=="ens"]
+comb[method=="ens2"]
 ```
 # Results
 
@@ -116,10 +120,9 @@ We compared a series of machine learning algorithms according to their ability t
 
 We sought a method with performance that was consistently good across all cross-validation sampling schemes, because the true proportion of cases in the test data is unknown, and we want a method that is not overly sensitive to the proportion of cases in the training data.  We chose to assess performance using sensitivity and specificity, as well as consistency.
 
-Training models on ELISAs for both proteins simultaneously (RBD and SPIKE), we found most methods worked well, with SVM maintaining highest consistency and second best sensitivity (losing only slightly to logistic regression), while LDA maximised specificity at the cost of lower sensitivity.  We chose to create an ensemble learner which was an unweighted average of SVM and LDA to balance the benefits of each approach.  Logistic regression showed the lowest consistency, which reflects that the proportion of cases in a sample directly informs a logistic model's estimated parameters.
+Training models on ELISAs for both proteins simultaneously (RBD and SPIKE), we found all methods worked well, with sensivity >98\% and specificity >99.8\%.  On this metric, LDA gave the highest specificity. Logistic regression had similarly high sepcificity on some folds of these training data, but with higher sensivity.  However, logistic regression showed the lowest consistency, which reflects that the proportion of cases in a sample directly informs a logistic model's estimated parameters. SVM methods had lower sensitivity and specificity than LDA in the training data, but we considered their ability to fit more complex boundaries might be a  benefit in the more dispersed test data. We chose therefore to also create ensemble learners which were an unweighted average of SVM (linear) or SVM2 (quadratic) and LDA to balance the benefits of each approach. The standard methods, calling positives by a fixed number of SD above the mean in controls displayed two extreme behaviours: 3-SD had the lowest specificity (<99.9%) and the highest sensitivity, while 6-SD had the highest specificity, and the lowest sensitivity, emphasising that the number of SD above the mean is a key parameter, but one which is typically not learnt in any formal data-driven manner.
 
 ```{r}
-
 library(ggrepel)
 p1 <- ggplot(comb[protein=="Both"],
        aes(x=100*sensitivity,y=100*specificity,
@@ -138,6 +141,7 @@ p1 <- ggplot(comb[protein=="Both"],
                    ) +
   guides(colour ="none",fill="none",shape= "legend") +
   labs(x="Sensitivity (%)",y="Specificity (%)") +
+  scale_y_continuous(breaks=c(99.8,99.9,100)) +
   ## ylim(0,0.01) +
   background_grid() +
   theme(legend.position=c(0.05,0.2),
@@ -146,8 +150,10 @@ p1 <- ggplot(comb[protein=="Both"],
   ## facet_grid(protein~fold.type) +
   ## facet_wrap(~protein,ncol=1,labeller=label_both) +
   ggtitle("Sensitivity in COVID patients and specificity in historical controls using different cross validation sampling schemes")
+p1
 ```
 
+<!--
 We also considered the performance of these methods using only one protein, and compared then methods to standard approaches using 3 or 6 SD above the mean of historical control samples.  3-SD had the lowest specificity (<99%) and the highest sensitivity, while 6-SD had the highest specificity, with a sensitivity ranged from ~98% (RBD) to 100% (SPIKE). For all the methods which could learn from both ELISAs simultaneously, the joint performance (specificity and sensitivity) exceeded the least performing single ELISA, and in some cases (linear SVM, SVM-LDA ensemble) exceeded both single ELISA predictions.
 
 ```{r}
@@ -179,9 +185,11 @@ ggplot(comb[],
   ggtitle("Sensitivity and specificity in COVID patients and historical controls using different cross validation sampling schemes")
 ```
 
-Finally, we considered the prediction surface associated with SVM, LDA, SVM-LDA ensemble, and the standard 3-SD, 6-SD hard decision boundaries. Note that while methods trained on both proteins can draw decision contours at any angle, SD methods are limited to vertical or horizontal lines. We can see that success, or failure, of the SD cut-offs depends on how many positive and negative cases overlap for a given measure (SPIKE or RBD) in the training sample. In the training data the two classes are nearly linearly separable when each protein is considered on its own (top panels), which explains good performance of 3-SD and 6-SD thresholds. However, the test data (bottom panels) contain many more points in the mid-range of SPIKE-RBD, which makes hard cut-offs a problematic choice for classifying test samples.
+-->
 
-When considering both proteins, the training data is perfectly linearly separable. Both SVM and LDA offer linear classification boundaries but we can see that probability transition from negative to positive cases is much sharper for LDA, potentially resulting in false negatives when applied to the test data, but giving the model high specificity. SVM exhibits a softer probability transition around its classification boundary, offering a much more nuanced approach to the points lying in the mid-range of the two proteins. These points are the hardest to classify partially due to the relative scarcity of observations in this region in the test dataset. We assessed that combining the two methods, LDA and SVM, would allow an ensemble method to benefit from high specificity of the LDA and high sensitivity and a more gradual probability transition around the classification boundary of the SVM, and chose to use the ensemble method to analyse the test data.
+Given the overall good performance of all learners, we considered the prediction surface associated with SVM, LDA, SVM-LDA ensemble, and the standard 3-SD, 6-SD hard decision boundaries. Note that while methods trained on both proteins can draw decision contours at any angle, SD methods are limited to vertical or horizontal lines. We can see that success, or failure, of the SD cut-offs depends on how many positive and negative cases overlap for a given measure (SPIKE or RBD) in the training sample. In the training data the two classes are nearly linearly separable when each protein is considered on its own (top panels), which explains good performance of 3-SD and 6-SD thresholds. However, the test data (bottom panels) contain many more points in the mid-range of SPIKE-RBD, which makes hard cut-offs a problematic choice for classifying test samples.
+
+When considering both proteins, the training data is nearly perfectly linearly separable. Both SVM and LDA offer linear classification boundaries but we can see that probability transition from negative to positive cases is much sharper for LDA, potentially resulting in false negatives when applied to the test data, but giving the model high specificity in the training data under cross-validation. SVM exhibits a softer probability transition around its classification boundary, offering a much more nuanced approach to the points lying in the mid-range of the two proteins. SVM2 (quadratic SVM) creates a nonlinear boundary, but the cross validation suggested that this didn't improve performance relative to linear SVM. Finally, the ensemble learners seemed to combine the benefits of their parent methods. The test data points in the lower right region of each plot are the hardest to classify due to the relative scarcity of observations in this region in the test dataset. The ENS learner shows the greatest uncertainty in this regions, appropriately. We chose to use the ensemble SVM-LDA method to analyse the test data.
 
 ```{r, echo=FALSE, results=FALSE}
 (load(file_rdata)) #m
@@ -230,7 +238,7 @@ X[, status := factor(status, levels = c("Historical controls", "COVID", "Test da
 
 myCol2[2] <- "grey40"
 library(ggnewscale)
-ggplot() +
+p2=ggplot() +
 geom_contour(data = prob.grd, aes(x = RBD, y = SPIKE, z = covid.prob, colour = ..level..), show.legend = FALSE) +
 scale_color_gradient(low = myCol2[3], high = myCol2[1]) +
 geom_raster(data = prob.grd, aes(x = RBD, y = SPIKE, fill = covid.prob), alpha = 0.5) +
@@ -246,10 +254,11 @@ geom_hline(data = prob.grd, aes(yintercept = thr.spk6, linetype = "6sd"), colour
 geom_vline(data = prob.grd, aes(xintercept = thr.rbd6, linetype = "6sd"), colour = "#BB3754FF", show.legend = FALSE) +
 scale_linetype_manual(name = 'sd method', values = c(1, 2), guide = guide_legend(override.aes = list(linetype = c("solid", "dashed")))) +
 xlab("log(RBD)") + ylab("log(SPIKE)") +
-facet_grid(mod ~ method) + theme_cowplot(font_size = 25) + background_grid()
-
+facet_grid(mod ~ method) + theme_cowplot(font_size = 12) + background_grid()
+p2
 
 ```
+
 
 # Methods
 

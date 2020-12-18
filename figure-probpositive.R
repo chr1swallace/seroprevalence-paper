@@ -1,6 +1,6 @@
 source("common.R")
 library(Hmisc) # binconf
-(load(file=file_rdata_v5)) # data
+(load(file=file_rdata)) # data
 
 ################################################################################
 
@@ -82,7 +82,7 @@ ens
 
 head(x)
 w <- 1.1
-ggsave("~/ens-probabilities.png",ens,height=4*w,width=8*w)
+ggsave("ens-probabilities.png",ens,height=4*w,width=8*w)
 
 xx <- x[,.(group,type,Sample.ID,SPIKE,RBD,prob.ENS,prob.3sd,prob.6sd)]
-fwrite(xx, file="~/ens-probabilities.csv")
+fwrite(xx, file="ens-probabilities.csv")

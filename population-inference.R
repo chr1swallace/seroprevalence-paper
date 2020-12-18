@@ -211,8 +211,8 @@ tmp[,.(bd=mean(Blood.donors),pv=mean(Pregnant.volunteers))]
 ggplot(pred[type=="Combined"],aes(x=week_num,y=qm,ymin=ll,ymax=ul#,col=type
                                   )) +
   geom_smooth(se=FALSE,
-              method="lm",formula=y~poly(x,3),
-                                        #span=0.8,
+              ## method="lm",formula=y~poly(x,3),
+                                        span=0.8,
     alpha=0.2,
               linetype="dotted") +
   geom_pointrange() +
@@ -224,3 +224,48 @@ options(digits=6)
 probs[order(type,Week),.(type,Week,N,estimate=qm,lower.ci=ll,upper.ci=ul)]
 fwrite(probs[order(type,Week),.(type,Week,N,estimate=qm,lower.ci=ll,upper.ci=ul)],
        file=file.path(d,"estimates.csv"))
+fwrite(probs[order(type,Week),.(type,Week,N,estimate=qm,lower.ci=ll,upper.ci=ul)],
+       file=file.path("estimates.csv"))
+
+
+## compare with sweden deaths from ecdc
+library(utils)
+#read the Dataset sheet into “R”. The dataset will be called "data".
+data <- read.csv("https://opendata.ecdc.europa.eu/covid19/casedistribution/csv", na.strings = "", fileEncoding = "UTF-8-BOM")
+data%<>%as.data.table
+
+pl=ggplot(pred[type=="Combined"],aes(x=week_num,y=qm,ymin=ll,ymax=ul#,col=type
+                                  )) +
+  geom_smooth(se=FALSE,
+              ## method="lm",formula=y~poly(x,3),
+                                        span=0.8,
+    alpha=0.2,
+              linetype="dotted") +
+  geom_pointrange() +
+  ## facet_wrap(~type) +
+  facet_grid(type ~ method) +
+  background_grid(major="y")
+
+ggplot(deaths,aes(x=week_num,y=cumsum(per100k))) +
+  geom_smooth(method="lm",formula=y~poly(x,3),) +
+  geom_point()
+
+deaths=data[countriesAndTerritories=="Sweden"]
+deaths[,week_num:=as.numeric(sub("2020-","",year_week))]
+deaths=deaths[order(week_num)]
+deaths[,perd:=100*deaths_weekly/popData2019]
+deaths[,perc:=cases_weekly/popData2019]
+comb=merge(unique(pred[type=="Combined",.(week_num,qm,ll,ul)]),
+           deaths[,.(week_num,perd,perc)],
+           by="week_num", all=TRUE)
+comb=comb[order(week_num)]
+
+comb[,perd.norm:=median(qm,na.rm=TRUE) * perd / median(cumsum(perd),na.rm=TRUE)]
+
+ggplot(comb,aes(x=week_num)) +
+  geom_pointrange(aes(y=qm,ymin=ll,ymax=ul),col="darkblue") +
+  geom_smooth(aes(y=qm),col="darkblue",se=FALSE,linetype="dotted") +#,linetype=="dashed") +
+  ## geom_point(aes(y=cumsum(10*perc)),col="purple") +
+  ## geom_path(aes(y=cumsum(10*perc)),col="purple",linetype="dashed") +
+  geom_point(aes(x=week_num,y=cumsum(perd.norm)),col="black") +
+  geom_path(aes(x=week_num,y=cumsum(perd.norm)),col="black",linetype="dashed")

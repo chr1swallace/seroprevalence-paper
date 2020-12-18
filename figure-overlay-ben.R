@@ -1,6 +1,6 @@
 source("common.R")
 library(Hmisc) # binconf
-(load(file=file_rdata_v5))
+(load(file=file_rdata))
 
 ################################################################################
 
@@ -95,11 +95,10 @@ p <- ggplot(pred,aes(x=week_num)) +
   geom_path(aes(y=value,lty=group,group=variable),data=b,col=col) +
   labs(x="Week",y="Machine learning prediction + 95% conf. int.") +
   scale_linetype_manual("Bayesian posterior",values=c(median="solid","70%"="dashed","95%"="dotted")) +
-#  background_grid(major="y") +
+ background_grid(major="y") +
   theme(legend.title=element_text(colour=col,face="bold"),
         legend.text=element_text(colour=col),
         legend.position=c(0.1,0.9))
 p
 
-ggsave("~/figure-overlay.png",p,height=6,width=6)
-
+ggsave("figure-overlay.png",p,height=6,width=6)
