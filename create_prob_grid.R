@@ -39,6 +39,7 @@ prob.grd <- lapply(1 : nrow(grd), FUN = function(i) {
                 SVM2=predict(svm2.mod, grd[i, ], type = "prob")$COVID)
   dt[,ENS := (LDA + SVM)/2]
   dt[,ENS2 := (LDA + SVM2)/2]
+  dt[,LOGLDA := (LDA + LOG)/2]
   dt
 }) %>% do.call(rbind, .) %>% data.table(., grd)
 
