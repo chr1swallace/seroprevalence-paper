@@ -258,30 +258,28 @@ scale_linetype_manual(name = 'sd method', values = c(1, 2), guide = guide_legend
 xlab("log(RBD)") + ylab("log(SPIKE)") +
 facet_grid(mod ~ method) + theme_cowplot(font_size = 12) + background_grid()
 p2
-
 ```
 
 This is a close up of the decision boundary for the final ensemble and its parents
 
 ```{r}
-mycol2[2] <- "grey40"
-library(ggnewscale)
-p3 =ggplot() +
-geom_contour(data = prob.grd[method %in% c("lda","svm","ens")], aes(x = rbd, y = spike, z = covid.prob, colour = ..level..), show.legend = false) +
-scale_color_gradient(low = mycol2[3], high = mycol2[1]) +
-geom_raster(data = prob.grd[method %in% c("lda","svm","ens")], aes(x = rbd, y = spike, fill = covid.prob), alpha = 0.5) +
-scale_fill_gradient(name ="prob(covid)", low = mycol2[3], high = mycol2[1],breaks=c(0,1),limits=c(0,1)) +
+prob.grd=prob.grd[method %in% c("LDA","SVM","ENS")]
+p3=ggplot() +
+geom_contour(data = prob.grd, aes(x = RBD, y = SPIKE, z = covid.prob, colour = ..level..), show.legend = FALSE) +
+scale_color_gradient(low = myCol2[3], high = myCol2[1]) +
+geom_raster(data = prob.grd, aes(x = RBD, y = SPIKE, fill = covid.prob), alpha = 0.5) +
+scale_fill_gradient(name ="Prob(COVID)", low = myCol2[3], high = myCol2[1]) +
   new_scale("fill") +
-  ## scale_colour_manual(name = "samples", values = mycol2[c(3, 1, 2)]) +
-  scale_fill_manual(name = "samples", values = mycol2[c(3, 1, 2)]) +
-geom_point(data = x[!is.na(status)], aes(x = spike, y = rbd, fill = status), alpha = 0.7, size = 3,pch=21) +
+  ## scale_colour_manual(name = "Samples", values = myCol2[c(3, 1, 2)]) +
+  scale_fill_manual(name = "Samples", values = myCol2[c(3, 1, 2)]) +
+geom_point(data = X[!is.na(status)], aes(x = SPIKE, y = RBD, fill = status), alpha = 0.7, size = 3,pch=21) +
 scale_x_continuous(trans = "log2") + scale_y_continuous(trans = "log2") +
-geom_hline(data = prob.grd[method %in% c("lda","svm","ens")], aes(yintercept = thr.spk3, linetype = "3sd"), colour = "#bb3754ff") +
-geom_vline(data = prob.grd[method %in% c("lda","svm","ens")], aes(xintercept = thr.rbd3, linetype = "3sd"), colour = "#bb3754ff", show.legend = false) +
-geom_hline(data = prob.grd[method %in% c("lda","svm","ens")], aes(yintercept = thr.spk6, linetype = "6sd"), colour = "#bb3754ff") +
-geom_vline(data = prob.grd[method %in% c("lda","svm","ens")], aes(xintercept = thr.rbd6, linetype = "6sd"), colour = "#bb3754ff", show.legend = false) +
+geom_hline(data = prob.grd, aes(yintercept = thr.spk3, linetype = "3sd"), colour = "#BB3754FF") +
+geom_vline(data = prob.grd, aes(xintercept = thr.rbd3, linetype = "3sd"), colour = "#BB3754FF", show.legend = FALSE) +
+geom_hline(data = prob.grd, aes(yintercept = thr.spk6, linetype = "6sd"), colour = "#BB3754FF") +
+geom_vline(data = prob.grd, aes(xintercept = thr.rbd6, linetype = "6sd"), colour = "#BB3754FF", show.legend = FALSE) +
 scale_linetype_manual(name = 'sd method', values = c(1, 2), guide = guide_legend(override.aes = list(linetype = c("solid", "dashed")))) +
-xlab("log(rbd)") + ylab("log(spike)") +
+xlab("log(RBD)") + ylab("log(SPIKE)") +
   facet_grid(mod ~ method) +
   theme_cowplot(font_size = 12) +
   theme(legend.position="bottom") +
